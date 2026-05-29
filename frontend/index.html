@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SpotDL Web — Tải nhạc Spotify FLAC</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&display=swap" rel="stylesheet" />
+  <style>
+    /* ── Reset & Variables ──────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:          #060812;
+      --bg2:         #0d1124;
+      --bg3:         #111827;
+      --surface:     rgba(255,255,255,0.04);
+      --surface2:    rgba(255,255,255,0.07);
+      --border:      rgba(255,255,255,0.08);
+      --border2:     rgba(255,255,255,0.18);
+      --green:       #1DB954;
+      --green2:      #1ed760;
+      --green-dim:   rgba(29,185,84,0.12);
+      --green-glow:  rgba(29,185,84,0.28);
+      --purple:      #8b5cf6;
+      --amber:       #f59e0b;
+      --red:         #ef4444;
+      --text:        #f0f0f8;
+      --text2:       #8a8fa8;
+      --text3:       #4a5068;
+      --r:           16px;
+      --r-sm:        10px;
+      --ease:        cubic-bezier(0.4,0,0.2,1);
+      --font-h:      'Syne', sans-serif;
+      --font-b:      'DM Sans', sans-serif;
+    }
+
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: var(--font-b);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100dvh;
+      overflow-x: hidden;
+    }
+
+    /* ── Ambient blobs ──────────────────────────────────────────────── */
+    .blob {
+      position: fixed; border-radius: 50%;
+      filter: blur(80px); pointer-events: none; z-index: 0;
+      animation: drift 20s ease-in-out infinite alternate;
+    }
+    .b1 { width:500px;height:500px; background:radial-gradient(circle,rgba(29,185,84,.18),transparent 70%); top:-200px;left:-150px; }
+    .b2 { width:400px;height:400px; background:radial-gradient(circle,rgba(139,92,246,.14),transparent 70%); top:35%;right:-100px; animation-delay:-7s; }
+    .b3 { width:300px;height:300px; background:radial-gradient(circle,rgba(29,185,84,.1),transparent 70%);  bottom:0;left:40%; animation-delay:-14s; }
+    @keyframes drift {
+      from { transform:translate(0,0) scale(1); }
+      to   { transform:translate(28px,36px) scale(1.08); }
+    }
+
+    /* ── Wrapper ────────────────────────────────────────────────────── */
+    .wrap { position:relative; z-index:1; max-width:840px; margin:0 auto; padding:0 20px; }
+
+    /* ── Header ─────────────────────────────────────────────────────── */
+    header { display:flex; align-items:center; justify-content:space-between; padding:28px 0 20px; }
+    .logo  { display:flex; align-items:center; gap:10px; text-decoration:none; }
+    .logo-icon {
+      width:38px; height:38px; background:var(--green); border-radius:50%;
+      display:grid; place-items:center; flex-shrink:0;
+    }
+    .logo-text { font-family:var(--font-h); font-size:1.2rem; font-weight:700; color:var(--text); }
+    .badge {
+      font-size:.65rem; font-weight:500; text-transform:uppercase; letter-spacing:1.5px;
+      background:var(--green-dim); color:var(--green);
+      border:1px solid rgba(29,185,84,.25); padding:3px 9px; border-radius:20px;
+    }
+
+    /* ── Hero ───────────────────────────────────────────────────────── */
+    .hero { text-align:center; padding:60px 0 48px; }
+    .eyebrow {
+      font-size:.75rem; font-weight:500; text-transform:uppercase; letter-spacing:2.5px;
+      color:var(--green); margin-bottom:18px;
+      opacity:0; animation:fadeUp .6s .1s forwards;
+    }
+    .hero h1 {
+      font-family:var(--font-h); font-size:clamp(2.3rem,6vw,4rem);
+      font-weight:800; line-height:1.05; letter-spacing:-2px; margin-bottom:18px;
+      opacity:0; animation:fadeUp .6s .2s forwards;
+    }
+    .hero h1 span {
+      background:linear-gradient(135deg,var(--green) 0%,#57d68d 50%,var(--purple) 100%);
+      -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;
+    }
+    .hero p {
+      font-size:clamp(.95rem,2.5vw,1.1rem); color:var(--text2); font-weight:300;
+      max-width:480px; margin:0 auto; line-height:1.7;
+      opacity:0; animation:fadeUp .6s .3s forwards;
+    }
+    .chips {
+      display:flex; justify-content:center; flex-wrap:wrap; gap:8px; margin-top:20px;
+      opacity:0; animation:fadeUp .6s .4s forwards;
+    }
+    .chip {
+      font-size:.75rem; font-weight:500; padding:5px 13px;
+      background:var(--surface); border:1px solid var(--border); border-radius:20px; color:var(--text2);
+    }
+    .chip.g { background:var(--green-dim); border-color:rgba(29,185,84,.25); color:var(--green); }
+
+    @keyframes fadeUp {
+      from { opacity:0; transform:translateY(14px); }
+      to   { opacity:1; transform:translateY(0); }
+    }
+
+    /* ── Input card ─────────────────────────────────────────────────── */
+    .card {
+      background:var(--surface); border:1px solid var(--border); border-radius:20px;
+      padding:28px; backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px);
+      opacity:0; animation:fadeUp .6s .5s forwards;
+      transition:border-color .25s var(--ease), box-shadow .25s var(--ease);
+    }
+    .card:focus-within {
+      border-color:rgba(29,185,84,.4);
+      box-shadow:0 0 0 1px rgba(29,185,84,.12), 0 20px 60px rgba(0,0,0,.4);
+    }
+    .card-label {
+      display:block; font-size:.75rem; font-weight:500;
+      text-transform:uppercase; letter-spacing:1.5px; color:var(--text3); margin-bottom:12px;
+    }
+    .row { display:flex; gap:12px; }
+    @media(max-width:520px){ .row { flex-direction:column; } }
+
+    .url-in {
+      flex:1; background:var(--bg3); border:1px solid var(--border);
+      border-radius:var(--r-sm); color:var(--text);
+      font-family:var(--font-b); font-size:.95rem; padding:14px 18px;
+      outline:none; transition:border-color .2s; min-width:0;
+    }
+    .url-in::placeholder { color:var(--text3); }
+    .url-in:focus { border-color:var(--green); }
+
+    .btn-go {
+      background:var(--green); color:#000; border:none; border-radius:var(--r-sm);
+      font-family:var(--font-h); font-size:.9rem; font-weight:700;
+      padding:14px 24px; cursor:pointer; white-space:nowrap;
+      display:flex; align-items:center; gap:8px;
+      transition:background .2s, transform .2s, opacity .2s; flex-shrink:0;
+    }
+    .btn-go:hover:not(:disabled) { background:var(--green2); transform:translateY(-1px); }
+    .btn-go:active:not(:disabled) { transform:translateY(0); }
+    .btn-go:disabled { opacity:.5; cursor:not-allowed; }
+    .btn-go .spin {
+      width:16px; height:16px; border:2px solid rgba(0,0,0,.3); border-top-color:#000;
+      border-radius:50%; animation:spin .7s linear infinite; display:none;
+    }
+    .btn-go.loading .ico { display:none; }
+    .btn-go.loading .spin { display:block; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+
+    /* ── Error ──────────────────────────────────────────────────────── */
+    .err {
+      margin-top:12px; padding:10px 14px;
+      background:rgba(239,68,68,.1); border:1px solid rgba(239,68,68,.25);
+      border-radius:8px; color:#ff8080; font-size:.85rem; display:none;
+    }
+    .err.on { display:block; }
+
+    /* ── Progress board ─────────────────────────────────────────────── */
+    #board { margin-top:28px; display:none; opacity:0; animation:fadeUp .5s forwards; }
+    #board.on { display:block; }
+
+    .board-hd {
+      display:flex; align-items:center; justify-content:space-between;
+      margin-bottom:16px; flex-wrap:wrap; gap:8px;
+    }
+    .board-title {
+      font-family:var(--font-h); font-size:.9rem; font-weight:600;
+      color:var(--text2); text-transform:uppercase; letter-spacing:1px;
+    }
+    .board-stats { font-size:.78rem; color:var(--text3); }
+    .board-stats b { color:var(--green); font-weight:500; }
+
+    /* Status banner */
+    .banner {
+      background:var(--surface); border:1px solid var(--border);
+      border-radius:var(--r-sm); padding:12px 16px;
+      font-size:.85rem; color:var(--text2);
+      display:none; align-items:center; gap:10px; margin-bottom:12px;
+    }
+    .banner.on { display:flex; }
+    .dot {
+      width:7px; height:7px; border-radius:50%; background:var(--green); flex-shrink:0;
+      animation:pulse .9s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%,100% { opacity:1; transform:scale(1); }
+      50%      { opacity:.4; transform:scale(.7); }
+    }
+
+    /* Song list */
+    .slist {
+      display:flex; flex-direction:column; gap:8px;
+      max-height:440px; overflow-y:auto;
+      scrollbar-width:thin; scrollbar-color:var(--border2) transparent;
+      padding-right:2px;
+    }
+    .slist::-webkit-scrollbar { width:4px; }
+    .slist::-webkit-scrollbar-thumb { background:var(--border2); border-radius:4px; }
+
+    /* Song item */
+    .sitem {
+      background:var(--surface); border:1px solid var(--border);
+      border-radius:var(--r-sm); padding:13px 16px;
+      display:grid; grid-template-columns:1fr auto;
+      grid-template-rows:auto auto; gap:8px 16px;
+      transition:border-color .25s;
+    }
+    .sitem.active  { border-color:rgba(29,185,84,.35); }
+    .sitem.done    { border-color:rgba(29,185,84,.2); }
+    .sitem.skipped { border-color:rgba(100,100,120,.3); }
+    .sitem.errored { border-color:rgba(239,68,68,.3); }
+
+    .sname {
+      font-size:.875rem; color:var(--text);
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+      grid-column:1; grid-row:1;
+    }
+    .sstatus {
+      font-size:.72rem; font-weight:600; text-transform:uppercase; letter-spacing:.8px;
+      grid-column:2; grid-row:1; text-align:right; white-space:nowrap;
+      padding:2px 8px; border-radius:20px;
+    }
+    /* Status colours */
+    .sstatus.st-downloading  { background:rgba(29,185,84,.15);  color:var(--green); }
+    .sstatus.st-converting   { background:rgba(245,158,11,.12); color:var(--amber); }
+    .sstatus.st-embedding    { background:rgba(139,92,246,.15); color:var(--purple); }
+    .sstatus.st-done         { background:rgba(29,185,84,.2);   color:var(--green2); }
+    .sstatus.st-skipped      { background:rgba(100,100,130,.15);color:var(--text3); }
+    .sstatus.st-error        { background:rgba(239,68,68,.15);  color:var(--red); }
+
+    /* Progress bar (fake % mapped from status) */
+    .pbar-wrap {
+      grid-column:1 / -1; grid-row:2;
+      height:3px; background:var(--bg3); border-radius:3px; overflow:hidden;
+    }
+    .pbar-fill {
+      height:100%; border-radius:3px;
+      transition:width .6s cubic-bezier(.4,0,.2,1);
+    }
+    .pbar-fill.green  { background:linear-gradient(90deg,var(--green),var(--green2)); }
+    .pbar-fill.amber  { background:linear-gradient(90deg,var(--amber),#fbbf24); }
+    .pbar-fill.purple { background:linear-gradient(90deg,var(--purple),#a78bfa); }
+    .pbar-fill.gray   { background:var(--text3); }
+    .pbar-fill.red    { background:var(--red); }
+
+    /* ── Download section ───────────────────────────────────────────── */
+    #dl-section { display:none; margin-top:24px; text-align:center; opacity:0; animation:fadeUp .5s forwards; }
+    #dl-section.on { display:block; }
+
+    .done-msg { font-size:.9rem; color:var(--text2); margin-bottom:22px; line-height:1.7; }
+    .done-msg b { color:var(--green); font-weight:500; }
+
+    .btn-dl {
+      display:inline-flex; align-items:center; gap:10px;
+      background:linear-gradient(135deg,var(--green) 0%,#16a34a 100%);
+      color:#000; text-decoration:none; border:none; border-radius:var(--r);
+      font-family:var(--font-h); font-size:1rem; font-weight:700;
+      padding:16px 34px; cursor:pointer;
+      transition:transform .2s, box-shadow .2s;
+      box-shadow:0 8px 32px var(--green-glow);
+    }
+    .btn-dl:hover { transform:translateY(-2px); box-shadow:0 14px 44px var(--green-glow); }
+
+    .btn-again {
+      display:inline-flex; align-items:center; gap:6px;
+      background:transparent; color:var(--text3); border:1px solid var(--border);
+      border-radius:8px; font-family:var(--font-b); font-size:.82rem;
+      padding:8px 16px; cursor:pointer; margin-top:14px;
+      transition:color .2s, border-color .2s;
+    }
+    .btn-again:hover { color:var(--text); border-color:var(--border2); }
+
+    /* ── Footer ─────────────────────────────────────────────────────── */
+    footer {
+      text-align:center; padding:40px 0 32px;
+      font-size:.78rem; color:var(--text3); line-height:1.9;
+    }
+    footer a { color:var(--text3); text-underline-offset:3px; }
+
+    @media(max-width:480px){
+      .hero { padding:36px 0 32px; }
+      .card { padding:18px; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="blob b1"></div>
+<div class="blob b2"></div>
+<div class="blob b3"></div>
+
+<div class="wrap">
+
+  <!-- Header -->
+  <header>
+    <a class="logo" href="#">
+      <div class="logo-icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="#000">
+          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14.5v-9l6 4.5-6 4.5z"/>
+        </svg>
+      </div>
+      <span class="logo-text">SpotDL Web</span>
+    </a>
+    <div class="badge">FLAC · Lossless</div>
+  </header>
+
+  <!-- Hero -->
+  <section class="hero">
+    <p class="eyebrow">Powered by spotdl 4.5.0 + YouTube Music</p>
+    <h1>Tải nhạc Spotify<br /><span>chất lượng cao nhất</span></h1>
+    <p>Dán link bài hát hoặc playlist — tự động tải FLAC lossless, metadata đầy đủ, file .zip sẵn sàng để lưu.</p>
+    <div class="chips">
+      <span class="chip g">✦ FLAC Lossless</span>
+      <span class="chip">Single Track</span>
+      <span class="chip">Playlist</span>
+      <span class="chip">Album</span>
+      <span class="chip">Metadata tự động</span>
+    </div>
+  </section>
+
+  <!-- Input card -->
+  <div class="card" id="icard">
+    <label class="card-label" for="surl">Dán link Spotify vào đây</label>
+    <div class="row">
+      <input type="url" id="surl" class="url-in"
+        placeholder="https://open.spotify.com/track/...  hoặc  /playlist/..."
+        autocomplete="off" spellcheck="false" />
+      <button class="btn-go" id="btngo" onclick="startDl()">
+        <svg class="ico" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
+        </svg>
+        <div class="spin"></div>
+        Bắt đầu tải
+      </button>
+    </div>
+    <div class="err" id="errmsg"></div>
+  </div>
+
+  <!-- Progress board -->
+  <div id="board">
+    <div class="board-hd">
+      <div class="board-title" id="board-title">📥 Đang tải xuống</div>
+      <div class="board-stats" id="bstats"></div>
+    </div>
+    <div class="banner" id="banner">
+      <div class="dot"></div>
+      <span id="banner-txt">Đang xử lý...</span>
+    </div>
+    <div class="slist" id="slist"></div>
+  </div>
+
+  <!-- Download section -->
+  <div id="dl-section">
+    <p class="done-msg" id="done-msg">Tải hoàn tất!</p>
+    <a id="btn-dl" class="btn-dl" href="#" download>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
+      </svg>
+      Tải file .zip về máy
+    </a>
+    <br/>
+    <button class="btn-again" onclick="reset()">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/>
+      </svg>
+      Tải bài khác
+    </button>
+  </div>
+
+  <footer>
+    Dự án cá nhân, chỉ dùng cho mục đích học tập &amp; cá nhân.<br/>
+    Nguồn âm thanh: <a href="https://music.youtube.com" target="_blank" rel="noopener">YouTube Music</a>
+    &nbsp;·&nbsp; Metadata: Spotify API
+  </footer>
+
+</div>
+
+<script>
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  ⚠️  THAY URL NÀY SAU KHI DEPLOY BACKEND LÊN RAILWAY  ⚠️               ║
+// ║  Ví dụ: const API = "https://spotdl-backend.up.railway.app";            ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+const API = window.BACKEND_URL || "http://localhost:8000";
+
+// ── State ──────────────────────────────────────────────────────────────────
+let jobId = null;
+let es    = null;       // EventSource hiện tại
+let songs = {};         // { title: { el, pct } }
+let done  = 0;
+let total = 0;
+
+// ── spotdl 4.5.0 simple_tui status → UI label + % ảo + màu ────────────────
+// Dựa trực tiếp trên source progress_handler.py:
+//   notify_download_complete  → "Converting"       (progress = 50)
+//   notify_conversion_complete→ "Embedding metadata"(progress = 95)
+//   notify_complete           → "Done"             (progress = 100)
+//   notify_download_skip      → "Skipped"          (progress = 100)
+//   yt_dlp_progress_hook      → "Downloading"      (progress = 0→50)
+const STATUS_MAP = {
+  "downloading":        { label: "Đang tải",  pct: 30,  cls: "st-downloading" },
+  "converting":         { label: "Chuyển đổi",pct: 65,  cls: "st-converting"  },
+  "embedding metadata": { label: "Metadata",  pct: 90,  cls: "st-embedding"   },
+  "done":               { label: "✓ Xong",    pct: 100, cls: "st-done"        },
+  "skipped":            { label: "Bỏ qua",    pct: 100, cls: "st-skipped"     },
+  "error":              { label: "Lỗi",       pct: 100, cls: "st-error"       },
+};
+const BAR_COLOR = {
+  "st-downloading": "green",
+  "st-converting":  "amber",
+  "st-embedding":   "purple",
+  "st-done":        "green",
+  "st-skipped":     "gray",
+  "st-error":       "red",
+};
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const esc = s => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+const safeId = t => encodeURIComponent(t).replace(/%/g,"_").replace(/[^a-zA-Z0-9_-]/g,"_").slice(0,40);
+
+function setErr(msg){ $("errmsg").textContent=msg; $("errmsg").classList.add("on"); }
+function clrErr(){ $("errmsg").classList.remove("on"); }
+function setBusy(on){ $("btngo").disabled=on; $("btngo").classList.toggle("loading",on); }
+function showBanner(txt){ $("banner-txt").textContent=txt; $("banner").classList.add("on"); }
+function hideBanner(){ $("banner").classList.remove("on"); }
+
+function updateStats(){
+  if(total > 0) $("bstats").innerHTML = `<b>${done}</b> / ${total} bài hoàn thành`;
+}
+
+// ── Song list management ───────────────────────────────────────────────────
+function upsertSong(title){
+  if(songs[title]) return songs[title];
+  const id  = safeId(title);
+  const el  = document.createElement("div");
+  el.className = "sitem active";
+  el.innerHTML = `
+    <div class="sname">${esc(title)}</div>
+    <div class="sstatus st-downloading" id="ss-${id}">Đang chờ…</div>
+    <div class="pbar-wrap">
+      <div class="pbar-fill green" id="pb-${id}" style="width:5%"></div>
+    </div>`;
+  $("slist").appendChild(el);
+  songs[title] = { el, id };
+  total = Math.max(total, Object.keys(songs).length);
+  updateStats();
+  return songs[title];
+}
+
+function setSongStatus(title, statusKey){
+  const s  = upsertSong(title);
+  const info = STATUS_MAP[statusKey] || { label: statusKey, pct: 20, cls: "st-downloading" };
+  const barColor = BAR_COLOR[info.cls] || "green";
+
+  const ss = $("ss-" + s.id);
+  const pb = $("pb-" + s.id);
+  if(ss){ ss.className = `sstatus ${info.cls}`; ss.textContent = info.label; }
+  if(pb){ pb.className = `pbar-fill ${barColor}`; pb.style.width = info.pct + "%"; }
+
+  // Item class
+  if(statusKey === "done" || statusKey === "skipped"){
+    s.el.className = "sitem " + (statusKey === "done" ? "done" : "skipped");
+    if(statusKey === "done"){ done++; updateStats(); }
+  } else if(statusKey === "error"){
+    s.el.className = "sitem errored";
+    done++; updateStats();
+  }
+}
+
+// ── SSE event handler ──────────────────────────────────────────────────────
+function handleEvent(data){
+  switch(data.type){
+
+    case "start":
+      showBanner(data.message || "Đang khởi động…");
+      break;
+
+    // ── Sự kiện chính: per-song status (từ spotdl 4.5.0 progress_handler.py)
+    // Format: "{song_name}: {Downloading|Converting|Embedding metadata|Done|Skipped|Error}"
+    case "song_status":
+      hideBanner();
+      setSongStatus(data.title, data.status);
+      break;
+
+    // ── Overall: "N/M complete"
+    case "overall":
+      total = data.total;
+      updateStats();
+      if(data.done === data.total)
+        showBanner(`Đã tải xong ${data.total} bài, đang nén...`);
+      break;
+
+    case "zipping":
+      showBanner(data.message || "Đang nén thành .zip…");
+      break;
+
+    case "zip_ready":
+      hideBanner();
+      setBusy(false);
+      if(es){ es.close(); es = null; }
+      showDownload(data.job_id, data.filename);
+      break;
+
+    case "log_error":
+      // Lỗi quan trọng từ spotdl/yt-dlp — hiển thị trong banner
+      showBanner("⚠ " + (data.message || "").slice(0, 100));
+      break;
+
+    case "error":
+      hideBanner();
+      setBusy(false);
+      if(es){ es.close(); es = null; }
+      setErr(data.message || "Lỗi không xác định.");
+      break;
+
+    case "log":
+      // Log thông thường — cập nhật banner nhẹ nhàng
+      if(data.message && !$("slist").children.length)
+        showBanner(data.message.slice(0, 80));
+      break;
+  }
+}
+
+// ── Bắt đầu tải ───────────────────────────────────────────────────────────
+async function startDl(){
+  clrErr();
+  const url = $("surl").value.trim();
+  if(!url){ setErr("Vui lòng nhập link Spotify."); return; }
+  if(!url.includes("spotify.com")){ setErr("Link không hợp lệ. Ví dụ: https://open.spotify.com/track/..."); return; }
+
+  setBusy(true);
+  resetBoard();
+  $("board").classList.add("on");
+  $("board").style.display = "block";
+  showBanner("Đang kết nối server…");
+
+  try {
+    const res = await fetch(`${API}/api/download`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    });
+    if(!res.ok){
+      const e = await res.json().catch(()=>({}));
+      throw new Error(e.detail || `Lỗi server ${res.status}`);
+    }
+    const { job_id } = await res.json();
+    jobId = job_id;
+
+    // Mở kết nối SSE để nhận tiến trình realtime
+    const sseUrl = `${API}/api/stream/${job_id}?url=${encodeURIComponent(url)}`;
+    es = new EventSource(sseUrl);
+    es.onmessage = ev => { try { handleEvent(JSON.parse(ev.data)); } catch(_){} };
+    es.onerror   = () => {
+      es.close(); es = null;
+      setBusy(false);
+      if(!$("dl-section").classList.contains("on"))
+        setErr("Mất kết nối với server. Vui lòng thử lại.");
+      hideBanner();
+    };
+  } catch(err){
+    setBusy(false);
+    hideBanner();
+    setErr(err.message || "Không thể kết nối backend.");
+  }
+}
+
+// ── Hiển thị nút tải zip ──────────────────────────────────────────────────
+function showDownload(jid, filename){
+  $("btn-dl").href = `${API}/api/file/${jid}`;
+  $("btn-dl").setAttribute("download", filename || "music.zip");
+  $("done-msg").innerHTML =
+    `Tải hoàn tất! <b>${done || Object.keys(songs).length}</b> bài nhạc — file <b>.zip</b> sẵn sàng.`;
+  $("dl-section").classList.add("on");
+  $("dl-section").style.display = "block";
+  $("board-title").textContent = "✅ Hoàn tất";
+  $("dl-section").scrollIntoView({ behavior:"smooth", block:"center" });
+}
+
+// ── Reset ─────────────────────────────────────────────────────────────────
+function resetBoard(){
+  $("slist").innerHTML = "";
+  $("bstats").innerHTML = "";
+  songs = {}; done = 0; total = 0;
+  $("dl-section").classList.remove("on");
+  $("dl-section").style.display = "none";
+  $("board-title").textContent = "📥 Đang tải xuống";
+}
+
+function reset(){
+  if(es){ es.close(); es = null; }
+  setBusy(false); clrErr(); hideBanner();
+  resetBoard();
+  $("board").classList.remove("on");
+  $("board").style.display = "none";
+  $("surl").value = "";
+  $("surl").focus();
+}
+
+// ── Enter key ─────────────────────────────────────────────────────────────
+$("surl").addEventListener("keydown", e => { if(e.key === "Enter") startDl(); });
+</script>
+</body>
+</html>
