@@ -1,12 +1,5 @@
-# ── Web framework ────────────────────────────────────────────────────────────
-fastapi==0.103.2
-uvicorn[standard]==0.24.0
-python-multipart==0.0.9
-
-# ── spotdl 4.5.0 và dependencies bắt buộc ────────────────────────────────────
-# Phiên bản này khớp với source code spotify-downloader-4.5.0.zip
+# spotdl sẽ tự kéo fastapi, python-multipart đúng version
 spotdl==4.5.0
 
-# spotdl 4.5.0 yêu cầu Python >=3.10, <3.15
-# Dependencies tự động được cài kèm spotdl:
-#   spotipy, spotipyFree, ytmusicapi, yt-dlp, mutagen, rich, ...
+# uvicorn để chạy server
+uvicorn[standard]
