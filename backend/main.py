@@ -121,21 +121,20 @@ def _is_ytm_url(url: str) -> bool:
 def _build_spotdl_cmd(url: str) -> list[str]:
     """
     Tạo lệnh spotdl phù hợp:
-    - Link YTM → KHÔNG dùng {list-name} (tránh None), dùng --audio youtube-music
-      và quan trọng: thêm --song để spotdl dùng ĐÚNG link YTM đó, không tự tìm lại
-    - Link Spotify / YouTube → dùng {list-name} nếu là playlist, fallback an toàn
+    - Link YTM → KHÔNG dùng {list-name} (tránh None)
+      Thêm --ytm-data để lấy metadata (tên, ảnh) từ chính link YTM đó, tránh match sai
+    - Link Spotify / YouTube → dùng {list-name} cho playlist, fallback "music" nếu None
     """
     if _is_ytm_url(url):
-        # User nhập link YTM trực tiếp → dùng link đó luôn, không để spotdl tự match
         return [
             "spotdl", "download", url,
-            "--output", "{title} - {artist}.{output-ext}",
-            "--format",  "flac",
-            "--audio",   "youtube-music",
+            "--output",   "{title} - {artist}.{output-ext}",
+            "--format",   "flac",
+            "--audio",    "youtube-music",
+            "--ytm-data",           # ← lấy metadata từ YTM, không match Spotify
             "--simple-tui",
         ]
     else:
-        # Spotify hoặc YouTube → dùng {list-name} cho playlist, fallback "" nếu None
         return [
             "spotdl", "download", url,
             "--output", "{list-name|music}/{title} - {artist}.{output-ext}",
@@ -143,6 +142,29 @@ def _build_spotdl_cmd(url: str) -> list[str]:
             "--audio",   "youtube-music",
             "--simple-tui",
         ]
+
+
+def _safe_filename(name: str) -> str:
+    """Loại bỏ ký tự không hợp lệ trong tên file/folder."""
+    name = re.sub(r'[\\/:*?"<>|]', "_", name)
+    name = name.strip(". ")
+    return name[:80] or "music"  # giới hạn độ dài, fallback nếu rỗng
+
+
+def _get_zip_name(work_dir: Path, done_songs: list[str]) -> str:
+    """
+    Xác định tên ZIP:
+    1. Nếu có subfolder (playlist) → dùng tên subfolder
+    2. Nếu chỉ có 1 bài → dùng tên bài đó
+    3. Fallback → "music"
+    """
+    subdirs = [d for d in work_dir.iterdir() if d.is_dir()]
+    if subdirs:
+        return _safe_filename(subdirs[0].name)
+    if len(done_songs) == 1:
+        return _safe_filename(done_songs[0])
+    # nhiều bài không có subfolder (hiếm gặp)
+    return _safe_filename(done_songs[0]) if done_songs else "music"
 
 
 async def stream_download(
@@ -243,10 +265,13 @@ async def stream_download(
         # ── NÉN ZIP ───────────────────────────────────────────────────────────
         yield _sse({"type": "zipping", "message": "Đang nén nhạc thành file .zip..."})
 
-        subdirs  = [d for d in work_dir.iterdir() if d.is_dir()]
-        target   = subdirs[0] if subdirs else work_dir
-        zip_base = str(DOWNLOAD_DIR / job_id)
-        zip_path = Path(zip_base + ".zip")
+        subdirs   = [d for d in work_dir.iterdir() if d.is_dir()]
+        target    = subdirs[0] if subdirs else work_dir
+
+        # Tên ZIP = tên playlist/bài thay vì UUID
+        zip_name  = _get_zip_name(work_dir, done_songs)
+        zip_base  = str(DOWNLOAD_DIR / f"{zip_name}_{job_id[:8]}")
+        zip_path  = Path(zip_base + ".zip")
 
         await asyncio.to_thread(
             shutil.make_archive, zip_base, "zip", str(target)
