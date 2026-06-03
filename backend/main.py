@@ -113,19 +113,45 @@ def _scan_flac_files(directory: Path) -> list[Path]:
     return list(directory.rglob("*.flac"))
 
 
+def _is_ytm_url(url: str) -> bool:
+    """Kiểm tra có phải link YouTube Music không."""
+    return "music.youtube.com" in url
+
+
+def _build_spotdl_cmd(url: str) -> list[str]:
+    """
+    Tạo lệnh spotdl phù hợp:
+    - Link YTM → KHÔNG dùng {list-name} (tránh None), dùng --audio youtube-music
+      và quan trọng: thêm --song để spotdl dùng ĐÚNG link YTM đó, không tự tìm lại
+    - Link Spotify / YouTube → dùng {list-name} nếu là playlist, fallback an toàn
+    """
+    if _is_ytm_url(url):
+        # User nhập link YTM trực tiếp → dùng link đó luôn, không để spotdl tự match
+        return [
+            "spotdl", "download", url,
+            "--output", "{title} - {artist}.{output-ext}",
+            "--format",  "flac",
+            "--audio",   "youtube-music",
+            "--simple-tui",
+        ]
+    else:
+        # Spotify hoặc YouTube → dùng {list-name} cho playlist, fallback "" nếu None
+        return [
+            "spotdl", "download", url,
+            "--output", "{list-name|music}/{title} - {artist}.{output-ext}",
+            "--format",  "flac",
+            "--audio",   "youtube-music",
+            "--simple-tui",
+        ]
+
+
 async def stream_download(
     job_id: str, url: str, work_dir: Path
 ) -> AsyncGenerator[str, None]:
     """
     Generator SSE với Folder Validation + Partial Success tracking.
     """
-    cmd = [
-        "spotdl", "download", url,
-        "--output", "{list-name}/{title} - {artist}.{output-ext}",
-        "--format",  "flac",
-        "--audio",   "youtube-music",
-        "--simple-tui",
-    ]
+    cmd = _build_spotdl_cmd(url)
 
     yield _sse({"type": "start", "message": "Đang khởi động spotdl..."})
 
