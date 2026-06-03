@@ -7,6 +7,7 @@ SpotDL Web App — Backend v3 (FastAPI)
 """
 
 import asyncio
+from urllib.parse import quote
 import json
 import logging
 import os
