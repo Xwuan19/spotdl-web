@@ -38,6 +38,7 @@ DOWNLOAD_DIR = Path(os.getenv("DOWNLOAD_DIR", "/tmp/spotdl_downloads"))
 DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 job_results: dict[str, str] = {}
+job_zip_names: dict[str, str] = {}   # tên đẹp cho Content-Disposition
 
 # ── URL Validation ────────────────────────────────────────────────────────────
 _VALID_HOSTS = [
@@ -263,19 +264,22 @@ async def stream_download(
         # ── NÉN ZIP ───────────────────────────────────────────────────────────
         yield _sse({"type": "zipping", "message": "Đang nén nhạc thành file .zip..."})
 
-        subdirs   = [d for d in work_dir.iterdir() if d.is_dir()]
-        target    = subdirs[0] if subdirs else work_dir
+        subdirs  = [d for d in work_dir.iterdir() if d.is_dir()]
+        target   = subdirs[0] if subdirs else work_dir
 
-        # Tên ZIP = tên playlist/bài thay vì UUID
-        zip_name  = _get_zip_name(work_dir, done_songs)
-        zip_base  = str(DOWNLOAD_DIR / f"{zip_name}_{job_id[:8]}")
-        zip_path  = Path(zip_base + ".zip")
+        # Tên ZIP = tên playlist/bài, dùng job_id làm tên file thực tế (an toàn)
+        # nhưng gửi tên đẹp về frontend qua Content-Disposition
+        zip_name      = _get_zip_name(work_dir, done_songs)
+        zip_base      = str(DOWNLOAD_DIR / job_id)          # path thực tế dùng UUID (an toàn)
+        zip_path      = Path(zip_base + ".zip")
+        zip_nice_name = f"{zip_name}.zip"                  # tên hiển thị cho user
 
         await asyncio.to_thread(
             shutil.make_archive, zip_base, "zip", str(target)
         )
 
         job_results[job_id] = str(zip_path)
+        job_zip_names[job_id] = zip_nice_name               # lưu tên đẹp riêng
 
         yield _sse({
             "type":         "zip_ready",
@@ -357,10 +361,15 @@ async def download_zip(job_id: str):
             Path(zip_path).unlink(missing_ok=True)
             job_results.pop(job_id, None)
 
+    nice_name = job_zip_names.get(job_id, Path(zip_path).name)
+
+    async def cleanup_names():
+        job_zip_names.pop(job_id, None)
+
     return StreamingResponse(
         stream_and_cleanup(),
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{Path(zip_path).name}"'},
+        headers={"Content-Disposition": f'attachment; filename="{nice_name}"'},
     )
 
 
