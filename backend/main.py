@@ -122,7 +122,6 @@ def _build_spotdl_cmd(url: str) -> list[str]:
     """
     Tạo lệnh spotdl phù hợp:
     - Link YTM → KHÔNG dùng {list-name} (tránh None)
-      Thêm --ytm-data để lấy metadata (tên, ảnh) từ chính link YTM đó, tránh match sai
     - Link Spotify / YouTube → dùng {list-name} cho playlist, fallback "music" nếu None
     """
     if _is_ytm_url(url):
@@ -131,7 +130,6 @@ def _build_spotdl_cmd(url: str) -> list[str]:
             "--output",   "{title} - {artist}.{output-ext}",
             "--format",   "flac",
             "--audio",    "youtube-music",
-            "--ytm-data",           # ← lấy metadata từ YTM, không match Spotify
             "--simple-tui",
         ]
     else:
