@@ -362,6 +362,9 @@ async def download_zip(job_id: str):
             job_results.pop(job_id, None)
 
     nice_name = job_zip_names.get(job_id, Path(zip_path).name)
+    # RFC 5987: hỗ trợ tên file UTF-8 (tiếng Việt, v.v.)
+    encoded_name = quote(nice_name, safe="")
+    content_disposition = f"attachment; filename*=UTF-8''{encoded_name}"
 
     async def cleanup_names():
         job_zip_names.pop(job_id, None)
@@ -369,7 +372,7 @@ async def download_zip(job_id: str):
     return StreamingResponse(
         stream_and_cleanup(),
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{nice_name}"'},
+        headers={"Content-Disposition": content_disposition},
     )
 
 
