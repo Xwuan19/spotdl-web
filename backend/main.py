@@ -122,26 +122,16 @@ def _is_ytm_url(url: str) -> bool:
 
 def _build_spotdl_cmd(url: str) -> list[str]:
     """
-    Tạo lệnh spotdl phù hợp:
-    - Link YTM → KHÔNG dùng {list-name} (tránh None)
-    - Link Spotify / YouTube → dùng {list-name} cho playlist, fallback "music" nếu None
+    Dùng output template đơn giản, không có {list-name} để tránh crash khi None.
+    Backend sẽ tự detect tên playlist/album từ subfolder spotdl tạo ra.
     """
-    if _is_ytm_url(url):
-        return [
-            "spotdl", "download", url,
-            "--output",   "{title} - {artist}.{output-ext}",
-            "--format",   "flac",
-            "--audio",    "youtube-music",
-            "--simple-tui",
-        ]
-    else:
-        return [
-            "spotdl", "download", url,
-            "--output", "{list-name|music}/{title} - {artist}.{output-ext}",
-            "--format",  "flac",
-            "--audio",   "youtube-music",
-            "--simple-tui",
-        ]
+    return [
+        "spotdl", "download", url,
+        "--output", "{title} - {artist}.{output-ext}",
+        "--format", "flac",
+        "--audio",  "youtube-music",
+        "--simple-tui",
+    ]
 
 
 def _safe_filename(name: str) -> str:
@@ -151,20 +141,17 @@ def _safe_filename(name: str) -> str:
     return name[:80] or "music"  # giới hạn độ dài, fallback nếu rỗng
 
 
-def _get_zip_name(work_dir: Path, done_songs: list[str]) -> str:
+def _get_zip_name(done_songs: list[str]) -> str:
     """
-    Xác định tên ZIP:
-    1. Nếu có subfolder (playlist) → dùng tên subfolder
-    2. Nếu chỉ có 1 bài → dùng tên bài đó
-    3. Fallback → "music"
+    Xác định tên ZIP từ danh sách bài đã tải:
+    - 1 bài → tên bài đó
+    - Nhiều bài → tên bài đầu tiên + "và X bài khác"... 
+      (thực tế playlist sẽ được đặt tên từ done_songs[0])
+    - Fallback → "music"
     """
-    subdirs = [d for d in work_dir.iterdir() if d.is_dir()]
-    if subdirs:
-        return _safe_filename(subdirs[0].name)
-    if len(done_songs) == 1:
-        return _safe_filename(done_songs[0])
-    # nhiều bài không có subfolder (hiếm gặp)
-    return _safe_filename(done_songs[0]) if done_songs else "music"
+    if not done_songs:
+        return "music"
+    return _safe_filename(done_songs[0])
 
 
 async def stream_download(
@@ -270,7 +257,7 @@ async def stream_download(
 
         # Tên ZIP = tên playlist/bài, dùng job_id làm tên file thực tế (an toàn)
         # nhưng gửi tên đẹp về frontend qua Content-Disposition
-        zip_name      = _get_zip_name(work_dir, done_songs)
+        zip_name      = _get_zip_name(done_songs)
         zip_base      = str(DOWNLOAD_DIR / job_id)          # path thực tế dùng UUID (an toàn)
         zip_path      = Path(zip_base + ".zip")
         zip_nice_name = f"{zip_name}.zip"                  # tên hiển thị cho user
