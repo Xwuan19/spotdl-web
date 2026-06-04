@@ -1,9 +1,9 @@
 """
-SpotDL Web App — Backend v3 (FastAPI)
+SpotDL Web App — Backend v4 (FastAPI)
 - Hỗ trợ link Spotify, YouTube Music, YouTube
-- Kiểm tra thư mục sau khi tải (Folder Validation)
-- Xử lý lỗi một phần playlist (Partial Success)
-- Gửi danh sách bài lỗi về Frontend
+- Link YTM bài lẻ: trả thẳng file FLAC, không ZIP
+- Playlist/album: nén ZIP với tên playlist
+- Metadata đúng cho link YTM nhờ --dont-filter-results
 """
 
 import asyncio
@@ -25,7 +25,7 @@ from pydantic import BaseModel
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="SpotDL Web App", version="3.0.0")
+app = FastAPI(title="SpotDL Web App", version="4.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -38,20 +38,26 @@ app.add_middleware(
 DOWNLOAD_DIR = Path(os.getenv("DOWNLOAD_DIR", "/tmp/spotdl_downloads"))
 DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-job_results: dict[str, str] = {}
-job_zip_names: dict[str, str] = {}   # tên đẹp cho Content-Disposition
+# job_id → path file (FLAC hoặc ZIP)
+job_results:   dict[str, str] = {}
+# job_id → tên đẹp cho Content-Disposition
+job_filenames: dict[str, str] = {}
+# job_id → mime type
+job_mimetypes: dict[str, str] = {}
 
 # ── URL Validation ────────────────────────────────────────────────────────────
-_VALID_HOSTS = [
-    "spotify.com",
-    "music.youtube.com",
-    "youtube.com",
-    "youtu.be",
-]
+_VALID_HOSTS = ["spotify.com", "music.youtube.com", "youtube.com", "youtu.be"]
 
 def is_valid_url(url: str) -> bool:
-    """Chấp nhận Spotify, YouTube Music, YouTube."""
     return any(host in url for host in _VALID_HOSTS)
+
+def _is_ytm_single(url: str) -> bool:
+    """Link YTM bài lẻ (watch?v=...), không phải playlist."""
+    return "music.youtube.com/watch" in url
+
+def _is_playlist_url(url: str) -> bool:
+    """Có phải playlist/album không (có 'playlist' hoặc 'album' trong URL)."""
+    return "playlist" in url or "album" in url
 
 # ── Status → % ảo ────────────────────────────────────────────────────────────
 STATUS_TO_PERCENT = {
@@ -111,62 +117,45 @@ def parse_spotdl_line(raw: str) -> dict | None:
 
 
 def _scan_flac_files(directory: Path) -> list[Path]:
-    """Đệ quy tìm tất cả file .flac trong thư mục."""
     return list(directory.rglob("*.flac"))
 
 
-def _is_ytm_url(url: str) -> bool:
-    """Kiểm tra có phải link YouTube Music không."""
-    return "music.youtube.com" in url
+def _safe_filename(name: str) -> str:
+    name = re.sub(r'[\\/:*?"<>|]', "_", name)
+    name = name.strip(". ")
+    return name[:80] or "music"
 
 
 def _build_spotdl_cmd(url: str) -> list[str]:
     """
-    Dùng output template đơn giản, không có {list-name} để tránh crash khi None.
-    Backend sẽ tự detect tên playlist/album từ subfolder spotdl tạo ra.
+    Lệnh spotdl:
+    - Link YTM bài lẻ: thêm --dont-filter-results để dùng đúng link đó,
+      tránh spotdl đi match Spotify và lấy metadata sai
+    - Các link khác: dùng lệnh chuẩn
+    - KHÔNG dùng {list-name} trong template vì sẽ crash khi None
     """
-    return [
+    base = [
         "spotdl", "download", url,
         "--output", "{title} - {artist}.{output-ext}",
         "--format", "flac",
         "--audio",  "youtube-music",
         "--simple-tui",
     ]
-
-
-def _safe_filename(name: str) -> str:
-    """Loại bỏ ký tự không hợp lệ trong tên file/folder."""
-    name = re.sub(r'[\\/:*?"<>|]', "_", name)
-    name = name.strip(". ")
-    return name[:80] or "music"  # giới hạn độ dài, fallback nếu rỗng
-
-
-def _get_zip_name(done_songs: list[str]) -> str:
-    """
-    Xác định tên ZIP từ danh sách bài đã tải:
-    - 1 bài → tên bài đó
-    - Nhiều bài → tên bài đầu tiên + "và X bài khác"... 
-      (thực tế playlist sẽ được đặt tên từ done_songs[0])
-    - Fallback → "music"
-    """
-    if not done_songs:
-        return "music"
-    return _safe_filename(done_songs[0])
+    if _is_ytm_single(url):
+        base.append("--dont-filter-results")
+    return base
 
 
 async def stream_download(
     job_id: str, url: str, work_dir: Path
 ) -> AsyncGenerator[str, None]:
-    """
-    Generator SSE với Folder Validation + Partial Success tracking.
-    """
     cmd = _build_spotdl_cmd(url)
+    is_single = _is_ytm_single(url) or not _is_playlist_url(url)
 
     yield _sse({"type": "start", "message": "Đang khởi động spotdl..."})
 
-    # ── Theo dõi bài thành công / thất bại trong session ─────────────────────
-    done_songs:   list[str] = []   # tên bài đã Done
-    failed_songs: list[str] = []   # tên bài bị Error/Skipped-with-error
+    done_songs:   list[str] = []
+    failed_songs: list[str] = []
 
     try:
         process = await asyncio.create_subprocess_exec(
@@ -184,7 +173,6 @@ async def stream_download(
                 await asyncio.sleep(0)
                 continue
 
-            # Theo dõi kết quả từng bài
             if event["type"] == "song_status":
                 if event["status"] == "done":
                     done_songs.append(event["title"])
@@ -196,7 +184,6 @@ async def stream_download(
 
         await process.wait()
 
-        # returncode 2+ = lỗi nghiêm trọng (không phải lỗi 1 bài)
         if process.returncode not in (0, 1):
             yield _sse({
                 "type":    "error",
@@ -209,11 +196,9 @@ async def stream_download(
 
         # ── FOLDER VALIDATION ─────────────────────────────────────────────────
         yield _sse({"type": "validating", "message": "Đang kiểm tra file đã tải..."})
-
         flac_files = await asyncio.to_thread(_scan_flac_files, work_dir)
 
         if not flac_files:
-            # Không có file nào → thất bại hoàn toàn
             yield _sse({
                 "type":    "error_empty",
                 "message": (
@@ -225,54 +210,57 @@ async def stream_download(
             })
             return
 
-        # Nếu log theo dõi không bắt được tên bài Done (ví dụ spotdl in khác),
-        # dùng số file thực tế làm fallback
-        actual_done  = len(flac_files)
+        actual_done   = len(flac_files)
         actual_failed = len(failed_songs)
 
-        # ── PARTIAL SUCCESS: cảnh báo bài lỗi nhưng vẫn nén ─────────────────
-        partial_info = None
         if failed_songs:
-            partial_info = {
-                "done_count":   actual_done,
-                "failed_count": actual_failed,
-                "failed_songs": failed_songs,
-            }
             yield _sse({
                 "type":         "partial_warning",
                 "done_count":   actual_done,
                 "failed_count": actual_failed,
                 "failed_songs": failed_songs,
-                "message": (
-                    f"Đã tải được {actual_done} bài, "
-                    f"{actual_failed} bài thất bại. Vẫn tiếp tục nén..."
-                ),
+                "message": f"Đã tải được {actual_done} bài, {actual_failed} bài thất bại.",
             })
 
-        # ── NÉN ZIP ───────────────────────────────────────────────────────────
+        # ── BÀI LẺ: trả thẳng FLAC, không ZIP ────────────────────────────────
+        if actual_done == 1:
+            flac_path     = flac_files[0]
+            nice_name     = flac_path.name
+            dest_path     = DOWNLOAD_DIR / f"{job_id}.flac"
+            await asyncio.to_thread(shutil.copy2, str(flac_path), str(dest_path))
+
+            job_results[job_id]   = str(dest_path)
+            job_filenames[job_id] = nice_name
+            job_mimetypes[job_id] = "audio/flac"
+
+            yield _sse({
+                "type":         "file_ready",
+                "job_id":       job_id,
+                "filename":     nice_name,
+                "done_count":   1,
+                "failed_count": actual_failed,
+                "failed_songs": failed_songs,
+                "message":      "Hoàn tất! File FLAC sẵn sàng tải.",
+            })
+            return
+
+        # ── PLAYLIST: nén ZIP ─────────────────────────────────────────────────
         yield _sse({"type": "zipping", "message": "Đang nén nhạc thành file .zip..."})
 
-        subdirs  = [d for d in work_dir.iterdir() if d.is_dir()]
-        target   = subdirs[0] if subdirs else work_dir
-
-        # Tên ZIP = tên playlist/bài, dùng job_id làm tên file thực tế (an toàn)
-        # nhưng gửi tên đẹp về frontend qua Content-Disposition
-        zip_name      = _get_zip_name(done_songs)
-        zip_base      = str(DOWNLOAD_DIR / job_id)          # path thực tế dùng UUID (an toàn)
+        zip_name      = _safe_filename(done_songs[0]) if done_songs else "music"
+        zip_base      = str(DOWNLOAD_DIR / job_id)
         zip_path      = Path(zip_base + ".zip")
-        zip_nice_name = f"{zip_name}.zip"                  # tên hiển thị cho user
 
-        await asyncio.to_thread(
-            shutil.make_archive, zip_base, "zip", str(target)
-        )
+        await asyncio.to_thread(shutil.make_archive, zip_base, "zip", str(work_dir))
 
-        job_results[job_id] = str(zip_path)
-        job_zip_names[job_id] = zip_nice_name               # lưu tên đẹp riêng
+        job_results[job_id]   = str(zip_path)
+        job_filenames[job_id] = f"{zip_name}.zip"
+        job_mimetypes[job_id] = "application/zip"
 
         yield _sse({
             "type":         "zip_ready",
             "job_id":       job_id,
-            "filename":     zip_path.name,
+            "filename":     f"{zip_name}.zip",
             "done_count":   actual_done,
             "failed_count": actual_failed,
             "failed_songs": failed_songs,
@@ -280,10 +268,7 @@ async def stream_download(
         })
 
     except FileNotFoundError:
-        yield _sse({
-            "type":    "error",
-            "message": "Không tìm thấy lệnh 'spotdl'. Hãy kiểm tra Dockerfile.",
-        })
+        yield _sse({"type": "error", "message": "Không tìm thấy lệnh 'spotdl'. Hãy kiểm tra Dockerfile."})
     except Exception as exc:
         logger.exception("Lỗi không mong đợi trong stream_download")
         yield _sse({"type": "error", "message": f"Lỗi server: {exc}"})
@@ -298,14 +283,8 @@ async def create_download_job(req: DownloadRequest):
     if not is_valid_url(url):
         raise HTTPException(
             status_code=400,
-            detail=(
-                "URL không hợp lệ. Chấp nhận: "
-                "Spotify (spotify.com), "
-                "YouTube Music (music.youtube.com), "
-                "YouTube (youtube.com / youtu.be)."
-            ),
+            detail="URL không hợp lệ. Chấp nhận: Spotify, YouTube Music, YouTube.",
         )
-
     job_id   = str(uuid.uuid4())
     work_dir = DOWNLOAD_DIR / job_id
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -330,37 +309,36 @@ async def sse_stream(job_id: str, url: str):
     )
 
 
-# ── API: Tải zip ──────────────────────────────────────────────────────────────
+# ── API: Tải file (FLAC hoặc ZIP) ─────────────────────────────────────────────
 @app.get("/api/file/{job_id}")
-async def download_zip(job_id: str):
-    zip_path = job_results.get(job_id)
-    if not zip_path or not Path(zip_path).exists():
+async def download_file(job_id: str):
+    file_path = job_results.get(job_id)
+    if not file_path or not Path(file_path).exists():
         raise HTTPException(status_code=404, detail="File không tồn tại hoặc đã bị xóa.")
+
+    nice_name    = job_filenames.get(job_id, Path(file_path).name)
+    mime_type    = job_mimetypes.get(job_id, "application/octet-stream")
+    encoded_name = quote(nice_name, safe="")
+    content_disp = f"attachment; filename*=UTF-8''{encoded_name}"
 
     async def stream_and_cleanup():
         try:
-            with open(zip_path, "rb") as f:
+            with open(file_path, "rb") as f:
                 while True:
                     chunk = f.read(65536)
                     if not chunk:
                         break
                     yield chunk
         finally:
-            Path(zip_path).unlink(missing_ok=True)
+            Path(file_path).unlink(missing_ok=True)
             job_results.pop(job_id, None)
-
-    nice_name = job_zip_names.get(job_id, Path(zip_path).name)
-    # RFC 5987: hỗ trợ tên file UTF-8 (tiếng Việt, v.v.)
-    encoded_name = quote(nice_name, safe="")
-    content_disposition = f"attachment; filename*=UTF-8''{encoded_name}"
-
-    async def cleanup_names():
-        job_zip_names.pop(job_id, None)
+            job_filenames.pop(job_id, None)
+            job_mimetypes.pop(job_id, None)
 
     return StreamingResponse(
         stream_and_cleanup(),
-        media_type="application/zip",
-        headers={"Content-Disposition": content_disposition},
+        media_type=mime_type,
+        headers={"Content-Disposition": content_disp},
     )
 
 
@@ -368,9 +346,9 @@ async def download_zip(job_id: str):
 @app.get("/health")
 def health_check():
     return {
-        "status":  "ok" if shutil.which("spotdl") and shutil.which("ffmpeg") else "degraded",
-        "spotdl":  shutil.which("spotdl") is not None,
-        "ffmpeg":  shutil.which("ffmpeg") is not None,
+        "status": "ok" if shutil.which("spotdl") and shutil.which("ffmpeg") else "degraded",
+        "spotdl": shutil.which("spotdl") is not None,
+        "ffmpeg": shutil.which("ffmpeg") is not None,
     }
 
 
