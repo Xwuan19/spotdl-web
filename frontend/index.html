@@ -432,7 +432,14 @@ function handleEvent(data){
       hideBanner();
       setBusy(false);
       if(es){es.close();es=null}
-      showDownload(data);
+      showDownload(data, false);
+      break;
+
+    case "file_ready":
+      hideBanner();
+      setBusy(false);
+      if(es){es.close();es=null}
+      showDownload(data, true);
       break;
 
     // ── Lỗi hoàn toàn (0 bài) ──────────────────────────────────────────
@@ -462,23 +469,27 @@ function handleEvent(data){
 }
 
 // ── Hiển thị nút tải (thành công / partial) ───────────────────────────────
-function showDownload(data){
+function showDownload(data, isSingle){
   const doneCount   = data.done_count   || Object.keys(songs).length;
   const failedCount = data.failed_count || 0;
   const failedSongs = data.failed_songs || [];
 
   $("btn-dl").href = `${API}/api/file/${data.job_id}`;
-  $("btn-dl").setAttribute("download", data.filename||"music.zip");
+  $("btn-dl").setAttribute("download", data.filename || (isSingle ? "music.flac" : "music.zip"));
 
-  if(failedCount > 0){
-    // Partial
+  if(isSingle){
+    // Bài lẻ → FLAC trực tiếp
+    $("done-msg").innerHTML = `Tải hoàn tất! File <b>.flac</b> sẵn sàng.`;
+    $("btn-dl-label").textContent = "Tải file .flac về máy";
+    $("failed-detail").style.display="none";
+  } else if(failedCount > 0){
+    // Partial playlist
     $("done-msg").innerHTML =
       `Tải xong <b>${doneCount}</b> bài ` +
       `<span class="warn">(${failedCount} bài thất bại)</span>. ` +
       `File <b>.zip</b> sẵn sàng.`;
     $("btn-dl-label").textContent = `Tải file .zip (${doneCount} bài)`;
 
-    // Danh sách bài lỗi
     if(failedSongs.length){
       const list = $("failed-detail-list");
       list.innerHTML="";
@@ -490,7 +501,7 @@ function showDownload(data){
       $("failed-detail").style.display="block";
     }
   } else {
-    // Full success
+    // Full success playlist
     $("done-msg").innerHTML =
       `Tải hoàn tất! <b>${doneCount}</b> bài nhạc — file <b>.zip</b> sẵn sàng.`;
     $("btn-dl-label").textContent = "Tải file .zip về máy";
