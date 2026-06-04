@@ -143,6 +143,7 @@ def _build_spotdl_cmd(url: str) -> list[str]:
     ]
     if _is_ytm_single(url):
         base.append("--dont-filter-results")
+        base.append("--ytm-data")   # lấy metadata (tên, ảnh) trực tiếp từ YTM
     return base
 
 
