@@ -159,10 +159,11 @@ async def stream_download(
     failed_songs: list[str] = []
 
     try:
+        logger.info("Running: %s", ' '.join(cmd))
         process = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
+            stderr=asyncio.subprocess.PIPE,
             cwd=str(work_dir),
             env={**os.environ, "PYTHONUNBUFFERED": "1"},
         )
